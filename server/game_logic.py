@@ -121,7 +121,7 @@ class GameBoard:
         for diag_row in range(2):
             if self._game_board[diag_row][diag_column] == piece:
                 for i, j in zip(
-                    range(diag_row, diag_row + 6),
+                    range(diag_row, diag_row + 5),
                     range(diag_column, diag_column + 5)
                 ):
                     if self._game_board[i][j] != piece:
