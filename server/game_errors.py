@@ -1,0 +1,2 @@
+class ColumnFullError(IndexError):
+    pass
