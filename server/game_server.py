@@ -208,6 +208,12 @@ class GameServer:
         self._game_started = True
 
     def _end_game_if_started(self, sock):
+        '''
+        Checks if the game has already begun, ends it, and notifies clients.
+
+        Args:
+            sock (socket.socket): Socket of client that caused game to end.
+        '''
         if self._game_started:
             self._game_started = False
             self._game.reset_game()
@@ -223,6 +229,12 @@ class GameServer:
                 self._message_queues[other_sock].put(message)
 
     def _send_loss(self, sock):
+        '''
+        Send message to losing player that they lost.
+
+        Args:
+            sock (socket.socket): Socket of winning player.
+        '''
         for other_sock in self._inputs:
             if self._cannot_send_to_sock(sock, other_sock):
                 continue
@@ -233,15 +245,35 @@ class GameServer:
             self._message_queues[other_sock].put(message)
 
     def _cannot_send_to_sock(self, sock_one, sock_two):
+        '''
+        Checks if a message cannot be sent to a socket.
+
+        This function checks if sock_one is the server itself, or is the same
+        socket as sock_two
+
+        Args:
+            sock_one (socket.socket): Socket to send message to.
+            sock_two (socket.socket): SOcket to validate is not sock_one.
+
+        Returns:
+            bool: True if a message cannot be sent, False if it can.
+        '''
         return (sock_two is self._server or sock_two is sock_one)
 
     def _change_active_player(self):
+        '''Changes the active player at the end of each turn.'''
         if self._active_player == 0:
             self._active_player = 1
         else:
             self._active_player = 0
 
     def _send_board_to_other_player(self, sock):
+        '''
+        Sends the board to the inactive player.
+
+        Args:
+            sock (socket.socket): Active player.
+        '''
         for other_sock in self._inputs:
             if self._cannot_send_to_sock(sock, other_sock):
                 continue
@@ -251,6 +283,7 @@ class GameServer:
             self._message_queues[other_sock].put(output)
 
     def _help_text(self):
+        '''Lists available commands for user'''
         return (
             'Commands:\n'
             '\tboard - Displays current game board.\n'
@@ -260,6 +293,17 @@ class GameServer:
         )
 
     def _manage_piece_drop(self, player_index, column, sock):
+        '''
+        Manages inserting a game piece into the board, and win status.
+
+        Args:
+            player_index (int): Index of player in self._client_names.
+            column (int): Column specified by user to insert game piece.
+            sock (socket.socket): The clients socket.
+
+        Returns:
+            str: Tells the user if they won, or updated board state.
+        '''
         piece = self._game.player_pieces[player_index]
 
         try:
@@ -282,6 +326,15 @@ class GameServer:
             )
 
     def _name_new_client(self, client_input):
+        '''
+        Saves the name of a new client, and tells them if the game will start.
+
+        Args:
+            client_input (str): The players name.
+
+        Returns
+            str: Welcome message, and the current number of connected clients.
+        '''
         self._client_names[self._connected_clients] = client_input
         self._connected_clients += 1
 
@@ -299,6 +352,17 @@ class GameServer:
         return output
 
     def _parse_command(self, client_input, sock):
+        '''
+        Function to parse the users command, and direct to correct function.
+
+        Args:
+            client_input (str): What the client has sent. Includes name if a    
+                known connection, and command.
+            sock (socket.socket): The clients socket.
+
+        Return:
+            The output of the command entered.
+        '''
         player_index = None
         player_name = None
         if ',' in client_input:

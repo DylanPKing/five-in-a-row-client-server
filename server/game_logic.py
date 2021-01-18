@@ -43,6 +43,7 @@ class GameBoard:
         return output
 
     def reset_game(self):
+        '''Clears the game board for a new game.'''
         self._game_board = [[' ' for _ in range(9)] for _ in range(6)]
 
     def _is_column_full(self, column):
@@ -154,6 +155,17 @@ class GameBoard:
         return 5, column
 
     def _is_winning_move(self, row, column, piece):
+        '''
+        Calls all match functions and returns if the user made a winning move.
+
+        Args:
+            row (int): The row the piece landed.
+            column (int): The column the piece landed.
+            piece (str): The piece type ('x' or 'o')
+
+        Returns:
+            bool: True if a wining move was made, False if not.
+        '''
         return (
             self._is_horizontal_match(row, piece) or
             self._is_vertical_match(column, piece) or
