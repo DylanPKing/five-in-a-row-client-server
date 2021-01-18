@@ -60,7 +60,11 @@ def client_loop(sock, stay_connected, player_name):
 
         response = sock.recv(1024)
         response = response.decode()
-        if response == 'Disconnecting...' or response == 'Server is full.':
+        print(response)
+        if (
+            response == 'Disconnecting...' or
+            response == 'Server is full.' or
+            response == 'Took too long to respond. Shutting down.'
+        ):
+
             stay_connected = False
-        else:
-            print(response)
