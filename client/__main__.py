@@ -1,4 +1,5 @@
 import socket
+
 import client_utils
 
 
@@ -10,12 +11,18 @@ if __name__ == "__main__":
 
     # Connect to server.
     print(f'connecting to {server_address[0]} port {server_address[1]}')
-    sock.connect(server_address)
+    try:
+        sock.connect(server_address)
+    except ConnectionRefusedError:
+        print(
+            'Connection refused. '
+            'Please make sure the server is live before running the client.'
+        )
+    else:
+        player_name = input('Enter your name:\t')
+        stay_connected = client_utils.send_name(sock, player_name)
 
-    player_name = input('Enter your name:\t')
-    stay_connected = client_utils.send_name(sock, player_name)
+        if stay_connected:
+            client_utils.client_loop(sock, stay_connected, player_name)
 
-    if stay_connected:
-        client_utils.client_loop(sock, stay_connected, player_name)
-
-    sock.close()
+        sock.close()
