@@ -2,6 +2,9 @@ import select
 import socket
 import queue
 
+from server.game_logic import GameBoard
+from server.game_errors import ColumnFullError
+
 
 class GameServer:
     def __init__(self, host, port):
@@ -26,6 +29,7 @@ class GameServer:
             _active_player: Current client that can control the game.
             _timeout_count: Counter to determine how many ticks have occurred
                 since last client command.
+            _game (.game_logic.GameBoard): The game board and logic.
         '''
         self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server.setblocking(0)
@@ -41,6 +45,7 @@ class GameServer:
         self._game_started = False
         self._active_player = 0
         self._timeout_count = 0
+        self._game = GameBoard()
 
     def server_loop(self):
         '''
@@ -59,28 +64,28 @@ class GameServer:
                 print('Timed out. Will shut down if no response soon.')
                 self._timeout_count += 1
                 if self._timeout_count >= 15:
-                    self.shut_down()
+                    self._shut_down()
                 continue
 
             self._timeout_count = 0
 
             for sock in readable:
                 if sock is self._server:
-                    self.accept_new_connection(sock)
+                    self._accept_new_connection(sock)
                 else:
                     data = sock.recv(1024)
                     if data:
-                        self.read_client_data(sock, data)
+                        self._read_client_data(sock, data)
                     else:
-                        self.disconnect_client(sock)
+                        self._disconnect_client(sock)
 
             for sock in writable:
-                self.send_response(sock)
+                self._send_response(sock)
 
             for sock in exceptional:
-                self.handle_client_exception(sock)
+                self._handle_client_exception(sock)
 
-    def accept_new_connection(self, sock):
+    def _accept_new_connection(self, sock):
         '''
         Accepts a new connection, and adds socket to inputs, and message queue.
 
@@ -92,7 +97,7 @@ class GameServer:
         self._inputs.append(connection)
         self._message_queues[connection] = queue.Queue()
 
-    def read_client_data(self, sock, data):
+    def _read_client_data(self, sock, data):
         '''
         Process incoming data from clients, and sends for parsing.
         Starts game when all clients are connected.
@@ -101,20 +106,18 @@ class GameServer:
             sock (socket.socket): Socket data was read from.
             data (bytes): Encoded string from client.
         '''
-        print(f'received {data} from {sock.getpeername()}')
         user_input = data.decode()
-        output = self._parse_command(user_input)
+        output = self._parse_command(user_input, sock)
 
         if self._connected_clients == 2 and not self._game_started:
-            self.start_game()
+            self._start_game()
 
-        output = output.encode()
         self._message_queues[sock].put(output)
 
         if sock not in self._outputs:
             self._outputs.append(sock)
 
-    def disconnect_client(self, sock):
+    def _disconnect_client(self, sock):
         '''
         Disconnects a client from the server.
 
@@ -129,9 +132,9 @@ class GameServer:
 
         del self._message_queues[sock]
 
-        self.end_game_if_started()
+        self._end_game_if_started(sock)
 
-    def send_response(self, sock):
+    def _send_response(self, sock):
         '''
         Sends a response to the specified socket.
 
@@ -139,23 +142,30 @@ class GameServer:
             sock (socket.socket) Socket to send message to.
         '''
         try:
-            next_message = self._message_queues[sock].get_nowait()
-        except queue.Empty:
-            print(f'{sock.getpeername()} queue empty')
-            self._outputs.remove(sock)
+            was_empty = self._message_queues[sock].empty()
+        except KeyError:  # Socket disconnected
+            print('Client disconnected')
         else:
-            print(f'Sending {next_message} to {sock.getpeername()}')
-            sock.send(next_message)
+            message = ''
+            while not self._message_queues[sock].empty():
+                message = (
+                    f'{message}\n{self._message_queues[sock].get_nowait()}'
+                )
+            if was_empty:
+                print(f'{sock.getpeername()} queue empty')
+                self._outputs.remove(sock)
+            else:
+                print(f'Sending {message} to {sock.getpeername()}')
+                message = message.encode()
+                sock.send(message)
 
-    def handle_client_exception(self, sock):
+    def _handle_client_exception(self, sock):
         '''
         Disconnect a socket that has sent an exception.
 
         Args:
             sock (socket.socket): Socket to disconnect.
         '''
-        print(f'Exception condition on {sock.getpeername()}')
-
         self._inputs.remove(sock)
         if sock in self._outputs:
             self._outputs.remove(sock)
@@ -163,9 +173,9 @@ class GameServer:
 
         del self._message_queues[sock]
 
-        self.end_game_if_started()
+        self._end_game_if_started(sock)
 
-    def shut_down(self):
+    def _shut_down(self):
         '''Send shutdown message to clients, and then shut down server.'''
         shutdown_message = (
             'Took too long to respond. Shutting down.'
@@ -178,7 +188,7 @@ class GameServer:
             sock.close()
         self._inputs.clear()
 
-    def is_active_player(self, player_number):
+    def _is_active_player(self, player_number):
         '''
         Returns if the specified player is the active player.
 
@@ -190,89 +200,146 @@ class GameServer:
         '''
         return player_number == self._active_player
 
-    def start_game(self):
+    def _start_game(self):
         '''
         Starts the game.
         '''
         self._active_player = 0
         self._game_started = True
 
-    def end_game_if_started(self):
+    def _end_game_if_started(self, sock):
         if self._game_started:
             self._game_started = False
-            # Reset game board here
-            for sock in self._inputs:
-                if sock is self._server:
+            self._game.reset_game()
+            for other_sock in self._inputs:
+                if self._cannot_send_to_sock(sock, other_sock):
                     continue
-                if sock not in self._outputs:
-                    self._outputs.append(sock)
-                self._message_queues[sock].put(
-                    'Player disconnected. Resetting Game.'
-                )
+                if other_sock not in self._outputs:
+                    self._outputs.append(other_sock)
+                message = 'Player disconnected. Resetting Game.'
 
-    def _parse_command(self, client_input):
+                if other_sock not in self._outputs:
+                    self._outputs.append(other_sock)
+                self._message_queues[other_sock].put(message)
+
+    def _send_loss(self, sock):
+        for other_sock in self._inputs:
+            if self._cannot_send_to_sock(sock, other_sock):
+                continue
+            message = 'You lost.'
+
+            if other_sock not in self._outputs:
+                self._outputs.append(other_sock)
+            self._message_queues[other_sock].put(message)
+
+    def _cannot_send_to_sock(self, sock_one, sock_two):
+        return (sock_two is self._server or sock_two is sock_one)
+
+    def _change_active_player(self):
+        if self._active_player == 0:
+            self._active_player = 1
+        else:
+            self._active_player = 0
+
+    def _send_board_to_other_player(self, sock):
+        for other_sock in self._inputs:
+            if self._cannot_send_to_sock(sock, other_sock):
+                continue
+            output = f'{self._game.game_board}\nYour turn!'
+            if sock not in self._outputs:
+                self._outputs.append(sock)
+            self._message_queues[other_sock].put(output)
+
+    def _help_text(self):
+        return (
+            'Commands:\n'
+            '\tboard - Displays current game board.\n'
+            '\tturn - Displays current turn number and current player.\n'
+            '\tNumber between 1 and 9 - Which column to drop yor piece.\n'
+            '\tdisconnect - Leave the game.\n'
+        )
+
+    def _manage_piece_drop(self, player_index, column, sock):
+        piece = self._game.player_pieces[player_index]
+
+        try:
+            win, row, col = self._game.insert_piece(piece, column - 1)
+        except ColumnFullError as err:
+            return str(err)
+
+        self._change_active_player()
+        if win:
+            self._game.reset_game()
+            self._send_loss(sock)
+
+            return 'You won!'
+        else:
+            self._send_board_to_other_player(sock)
+
+            return (
+                f'Piece landed in row {row} column {col}\n'
+                f'Board:\n{self._game.game_board}'
+            )
+
+    def _name_new_client(self, client_input):
+        self._client_names[self._connected_clients] = client_input
+        self._connected_clients += 1
+
+        output = (
+            f'Welcome {client_input}! '
+            f'There are {self._connected_clients} clients connected.'
+        )
+
+        if self._connected_clients == 2:
+            output = f"{output} Let's go!"
+            self._start_game()
+        else:
+            output = f'{output} Waiting on another player.'
+
+        return output
+
+    def _parse_command(self, client_input, sock):
         player_index = None
+        player_name = None
         if ',' in client_input:
             player_name, client_input = client_input.split(',')
             player_index = self._client_names.index(player_name)
 
         if client_input == 'help':
-            return (
-                'Commands:\n'
-                '\tboard - Displays current game board.\n'
-                '\tturn - Displays current turn number and current player.\n'
-                '\tNumber between 1 and 9 - Which column to drop yor piece.\n'
-                '\tdisconnect - Leave the game.\n'
-            )
+            return self._help_text()
 
         elif client_input == 'board':
             if self._game_started:
-                return 'requested board'  # return self._game.game_board()
+                return self._game.game_board
             else:
                 return 'Game has not started.'
         elif client_input == 'turn':
-            return 'requested turn info'
-            # return (
-            #   f'Turn #{self._game.turn_number}. '
-            #   f'{self._client_names[self._active_player]}s turn.'
-            # )
+            return f'It is {self._client_names[self._active_player]}s turn.'
         elif client_input.isdigit():
-            if not self.is_active_player(player_index):
+            if not self._is_active_player(player_index):
                 return 'Please wait for your turn.'
             elif not self._game_started:
                 return 'Game has not started.'
+
             column = int(client_input)
+
             if 1 <= column <= 9:
-                return 'valid number'
-                # win, row, col = self._game.insert_piece(column - 1)
-                # if win, end game and tell users.
-                # else, tell user where piece landed.
+                return self._manage_piece_drop(player_index, column, sock)
             else:
-                return 'invalid number'
-                # Tell user invalid input, and to try again
+                return "That's an invalid number. Try again."
         elif client_input == 'disconnect':
-            if player_name in self._client_names:
+            if player_name is not None and player_name in self._client_names:
                 self._client_names[player_index] = ''
                 self._connected_clients -= 1
+                self._end_game_if_started(sock)
+
             return 'Disconnecting...'
         elif (
             not self._game_started and
             self._connected_clients < 2 and
             player_index is None
         ):
-            self._client_names[self._connected_clients] = client_input
-            self._connected_clients += 1
-            output = (
-                f'Welcome {client_input}! '
-                f'There are {self._connected_clients} clients connected.'
-            )
-            if self._connected_clients == 2:
-                output = f"{output} Let's go!"
-            else:
-                output = f'{output} Waiting on another player.'
-
-            return output
-
+            return self._name_new_client(client_input)
         elif self._connected_clients == 2 and player_index is None:
             return 'Server is full.'
         else:

@@ -24,6 +24,7 @@ class GameBoard:
         '''
         Creates a new GameBoard, and generates an empty 6 * 9 2D array.
         '''
+        self.player_pieces = ['x', 'o']
         self._game_board = [[' ' for _ in range(9)] for _ in range(6)]
 
     @property
@@ -40,6 +41,9 @@ class GameBoard:
                 output = f'{output}[ {space} ] '
             output = f'{output}\n'
         return output
+
+    def reset_game(self):
+        self._game_board = [[' ' for _ in range(9)] for _ in range(6)]
 
     def _is_column_full(self, column):
         '''
@@ -66,12 +70,12 @@ class GameBoard:
 
     def _is_horizontal_match(self, row, piece):
         '''
-        Checks the first two columns of a row for the specified piece.
+        Checks the first 5 columns of a row for the specified piece.
         If found, will check rest of the row. If another piece type is found
         it will return False, else True.
         If not found, will return False.
         '''
-        for col in range(4):
+        for col in range(5):
             if self._game_board[row][col] == piece:
                 for i in range(col, col + 5):
                     if self._game_board[row][i] != piece:
@@ -93,16 +97,19 @@ class GameBoard:
             return False  # All can only reach 4 in a row
 
         diag_column = column + row
+        diag_column = diag_column - 1 if diag_column > 8 else diag_column
+        # Prevents index errors, and does not cause logic errors.
 
         for diag_row in range(2):
             if self._game_board[diag_row][diag_column] == piece:
                 for i, j in zip(
                     range(diag_row, diag_row + 5),
-                    range(diag_column, diag_column, -1)
+                    range(diag_column, diag_column - 5, -1)
                 ):
                     if self._game_board[i][j] != piece:
                         return False
                 return True
+
         return False
 
     def _is_negative_diagonal_match(self, row, column, piece):
@@ -117,6 +124,7 @@ class GameBoard:
             return False  # All can only reach 4 in a row
 
         diag_column = column - row
+        diag_column = diag_column + 1 if diag_column < 0 else diag_column
 
         for diag_row in range(2):
             if self._game_board[diag_row][diag_column] == piece:
@@ -127,6 +135,7 @@ class GameBoard:
                     if self._game_board[i][j] != piece:
                         return False
                 return True
+
         return False
 
     def _drop_piece(self, piece, column):
@@ -176,7 +185,7 @@ class GameBoard:
         '''
         if self._is_column_full(column):
             raise ColumnFullError(
-                f'Column {column} is already full. '
+                f'Column {column + 1} is already full. '
                 'Please select another column'
             )
         row, column = self._drop_piece(piece, column)

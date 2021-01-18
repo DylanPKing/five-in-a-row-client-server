@@ -57,7 +57,7 @@ class TestGameBoard(unittest.TestCase):
 
     def test_is_vertical_match_diff_piece_in_middle(self):
         self._board._game_board[1][0] = 'x'
-        self._board._game_board[1][0] = 'x'
+        self._board._game_board[1][0] = 'o'
         self._board._game_board[1][0] = 'x'
         self._board._game_board[1][0] = 'o'
         self._board._game_board[1][0] = 'x'
@@ -140,3 +140,12 @@ class TestGameBoard(unittest.TestCase):
     def test_insert_piece_raises_column_full_error(self):
         self._fill_column(0)
         self.assertRaises(ColumnFullError, self._board.insert_piece, 'x', 0)
+
+    def test_reset_game(self):
+        expected_value = ' '
+
+        self._board.reset_game()
+
+        for row in self._board._game_board:
+            for actual_value in row:
+                assert expected_value == actual_value

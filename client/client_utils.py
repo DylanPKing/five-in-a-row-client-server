@@ -54,17 +54,17 @@ def client_loop(sock, stay_connected, player_name):
     '''
     while stay_connected:
         user_input = input('Enter command or number to drop piece:\t')
-        user_input = f'{player_name},{user_input}'
-        outgoing_message = user_input.encode()
+        command = f'{player_name},{user_input}'
+        outgoing_message = command.encode()
         sock.send(outgoing_message)
 
         response = sock.recv(1024)
         response = response.decode()
         print(response)
         if (
-            response == 'Disconnecting...' or
-            response == 'Server is full.' or
-            response == 'Took too long to respond. Shutting down.'
+            'Disconnecting...' in response or
+            'Server is full.' in response or
+            'Took too long to respond. Shutting down.' in response or
+            'disconnect' in user_input
         ):
-
             stay_connected = False
